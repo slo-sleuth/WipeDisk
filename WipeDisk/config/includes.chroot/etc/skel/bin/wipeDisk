@@ -1,0 +1,101 @@
+#!/bin/bash
+#:Title : WipeDisk
+#:Author: John Lehr <slo.sleuth@gmail.com>
+#:Date  : 2021-02-24
+#:Deps  : pv, dialog
+#:Desc  : console utility to wipe devices
+
+# Constants
+BTITLE="WipeDisk"
+DEV="/tmp/wipedisk-devices"
+INP="/tmp/wipedisk-input"
+
+# Functions
+confirm_action()
+{
+    dialog --backtitle "$BTITLE" --title "Confirm Action" --colors \
+        --defaultno \
+        --yesno "${action}\n\nDo you want to continue?" 0 0
+    exitCode="$?"
+}
+
+list_devices()
+{
+    # write attached devices to $DEV
+    lsblk -do name,type,size,vendor,model,label | egrep "TYPE|disk" | \
+        egrep -v "WipeDisk" > $DEV
+
+    dialog --backtitle "$BTITLE" --title "Device List" --colors \
+        --textbox "$DEV" 0 0
+    exitCode="$?"
+}
+
+main_menu()
+{
+    dialog --backtitle "$BTITLE" --title "Main Menu" --colors \
+        --nocancel \
+        --menu "Use arrow keys and <Enter> to select options:" 0 0 3 \
+        List    "Inspect attached storage devices" \
+        Wipe    "Select and wipe a storage device" \
+        Refresh "Refresh the screen (after plugging new device)" \
+        Quit    "Exit and shutdown computer" 2>$INP
+}
+
+select_device()
+{
+    unset args
+    while read name desc; do
+        args+=( "$name" "$desc" )
+    done < <(lsblk -dn -o name,type,size,vendor,model,label | grep "disk" | \
+        grep -v "WipeDisk")
+    dialog --backtitle "$BTITLE" --title "Select Device" --colors \
+        --menu "Choose the device to wipe:" 0 0 0 "${args[@]}" 2>$INP
+    exitCode=$?
+    #[[ -s $INP ]] || wipe_device
+}
+
+system_down(){
+    clear
+    poweroff
+}
+
+wipe_device()
+{
+    select_device
+    [[ $exitCode -gt 0 ]] && return
+
+    device=$(cat $INP)
+    action="Wiping will \Zudestroy\Zn all data on device \Z1$device\Zn."
+    confirm_action
+    [[ $exitCode -gt 0 ]] && return
+
+    len=$(lsblk -dbno size /dev/$device)
+    (dd if=/dev/zero bs=64K | pv -s $len -n | dd of=/dev/$device \
+     conv=noerror) 2>&1 | \
+
+    dialog --backtitle "$BTITLE" --title "Wiping Device" --colors \
+        --gauge \
+        "Device \Z1$device\Zn is being overwritten by zeros, please wait..." 6 70 0
+    sync
+
+    dialog --backtitle "$BTITLE" --title "Wipe Device" --colors \
+        --msgbox "Wiping complete." 5 20
+    exitCode="$?"
+}
+
+
+# Main
+
+while true; do
+    main_menu
+    case $(cat $INP) in
+        List)       list_devices;;
+        Wipe)       wipe_device;;
+        Refresh)    system_down;;
+        Quit)       break;;
+        *)          continue;;
+    esac
+done
+
+clear
+poweroff

@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+lb config noauto \
+    --archive-areas main contrib non-free \
+    --distribution sid \
+    --apt-indices false \
+    --gzip-options "--best --rsyncable" \
+    --iso-volume "WipeDisk" \
+    --system live \
+	"${@}"
